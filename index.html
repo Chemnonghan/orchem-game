@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Organic Builder - Phase 1 Foundations</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #1e1e24;
+            color: #fff;
+            font-family: sans-serif;
+            overflow: hidden;
+        }
+        #canvas-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        canvas {
+            display: block;
+            background-color: #121214;
+        }
+        #info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            pointer-events: none;
+        }
+        h3 { margin: 0 0 5px 0; color: #4caf50; }
+        p { margin: 3px 0; font-size: 14px; color: #ccc; }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <div id="info-panel">
+            <h3>Phase 1: Drag & Snap Test</h3>
+            <p>• ลากอะตอมไฮโดรเจน (สีขาว) เข้าใกล้คาร์บอน (สีเทา)</p>
+            <p>• ระยะ Snap อยู่ที่ 60 พิกเซล</p>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// ปรับขนาด Canvas ให้เต็มจอ
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// --- 1. DATA STRUCTURES ---
+// อะตอมตั้งต้นบนกระดาน (โมเลกุลแกนกลางเป็น Carbon และมี Hydrogen ให้ลากเล่น)
+let atoms = [
+    { id: 'C_1', element: 'C', x: canvas.width / 2, y: canvas.height / 2, radius: 28, color: '#4a4a4a', isDragging: false },
+    { id: 'H_1', element: 'H', x: 200, y: 200, radius: 18, color: '#f0f0f0', isDragging: false },
+    { id: 'H_2', element: 'H', x: 200, y: 400, radius: 18, color: '#f0f0f0', isDragging: false }
+];
+
+let bonds = []; // เก็บพันธะที่เชื่อมต่อกันแล้ว เช่น { atomA: 'C_1', atomB: 'H_1' }
+const SNAP_DISTANCE = 60; // ระยะการดูดติด (Pixels)
+let draggedAtom = null;   // อะตอมที่กำลังถูกลากอยู่ ณ ปัจจุบัน
+
+// --- 2. INTERACTION LOGIC (MOUSE/TOUCH EVENTS) ---
+
+// ตรวจสอบว่าเมาส์จิ้มโดนอะตอมตัวไหนไหม
+function getAtomAtPosition(mx, my) {
+    for (let i = atoms.length - 1; i >= 0; i--) {
+        let atom = atoms[i];
+        let dist = Math.hypot(atom.x - mx, atom.y - my);
+        if (dist < atom.radius) return atom;
+    }
+    return null;
+}
+
+canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    draggedAtom = getAtomAtPosition(mx, my);
+    if (draggedAtom) {
+        draggedAtom.isDragging = true;
+        
+        // ตัดพันธะเดิมออกชั่วคราวถ้าผู้เล่นลากอะตอมที่เคย Snap แล้วแยกออกมา
+        bonds = bonds.filter(b => b.atomA !== draggedAtom.id && b.atomB !== draggedAtom.id);
+    }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    if (!draggedAtom) return;
+
+    const rect = canvas.getBoundingClientRect();
+    draggedAtom.x = e.clientX - rect.left;
+    draggedAtom.y = e.clientY - rect.top;
+});
+
+canvas.addEventListener('mouseup', () => {
+    if (!draggedAtom) return;
+    draggedAtom.isDragging = false;
+
+    // ระบบ SNAP CRITERIA: ตรวจสอบหาอะตอมที่อยู่ใกล้ที่สุดเพื่อเชื่อมพันธะ
+    let closestAtom = null;
+    let minDistance = Infinity;
+
+    atoms.forEach(target => {
+        if (target.id === draggedAtom.id) return; // ไม่เช็คตัวเอง
+
+        let dist = Math.hypot(draggedAtom.x - target.x, draggedAtom.y - target.y);
+        if (dist < minDistance) {
+            minDistance = dist;
+            closestAtom = target;
+        }
+    });
+
+    // ถ้าเข้าใกล้พอ และไม่ใช่การนำ H มาต่อกับ H เอง (สร้างเงื่อนไขเคมีพื้นฐาน)
+    if (closestAtom && minDistance <= SNAP_DISTANCE) {
+        if (!(draggedAtom.element === 'H' && closestAtom.element === 'H')) {
+            
+            // คำนวณพิกัดให้ Snap ดูดเข้าหากันทางกายภาพ (ปรับระยะให้อยู่ห่างกันพอดีรัศมี)
+            let angle = Math.atan2(draggedAtom.y - closestAtom.y, draggedAtom.x - closestAtom.x);
+            let targetDist = closestAtom.radius + draggedAtom.radius + 15; // รัศมีบวกระยะห่างเส้นพันธะ
+            
+            draggedAtom.x = closestAtom.x + Math.cos(angle) * targetDist;
+            draggedAtom.y = closestAtom.y + Math.sin(angle) * targetDist;
+
+            // บันทึกพันธะลงในระบบ
+            bonds.push({
+                atomA: closestAtom.id,
+                atomB: draggedAtom.id
+            });
+        }
+    }
+
+    draggedAtom = null;
+});
+
+// --- 3. RENDERING SYSTEM (VISUAL) ---
+
+function draw() {
+    // ล้างหน้าจอทุกเฟรมเพื่อวาดใหม่
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // วาดเส้นพันธะ (Bonds) ที่เกิดขึ้นแล้ว
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#ffffff';
+    bonds.forEach(bond => {
+        let atomA = atoms.find(a => a.id === bond.atomA);
+        let atomB = atoms.find(a => a.id === bond.atomB);
+        if (atomA && atomB) {
+            ctx.beginPath();
+            ctx.moveTo(atomA.x, atomA.y);
+            ctx.lineTo(atomB.x, atomB.y);
+            ctx.stroke();
+        }
+    });
+
+    // วาดเส้นประ Preview ไกด์ไลน์ขณะกำลังลากเข้าใกล้
+    if (draggedAtom) {
+        atoms.forEach(target => {
+            if (target.id === draggedAtom.id) return;
+            let dist = Math.hypot(draggedAtom.x - target.x, draggedAtom.y - target.y);
+            
+            if (dist <= SNAP_DISTANCE && !(draggedAtom.element === 'H' && target.element === 'H')) {
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#4caf50';
+                ctx.setLineDash([5, 5]); // ทำให้เส้นเป็นเส้นประ
+                ctx.beginPath();
+                ctx.moveTo(draggedAtom.x, draggedAtom.y);
+                ctx.lineTo(target.x, target.y);
+                ctx.stroke();
+                ctx.setLineDash([]); // รีเซ็ตกลับเป็นเส้นทึบ
+            }
+        });
+    }
+
+    // วาดตัวแผ่นอะตอม (Atom Tiles)
+    atoms.forEach(atom => {
+        // วาดเงา/แสงเรืองรอบๆ อะตอม
+        ctx.beginPath();
+        ctx.arc(atom.x, atom.y, atom.radius, 0, Math.PI * 2);
+        ctx.fillStyle = atom.color;
+        ctx.shadowBlur = atom.isDragging ? 15 : 0;
+        ctx.shadowColor = '#4caf50';
+        ctx.fill();
+        ctx.shadowBlur = 0; // รีเซ็ตเงา
+
+        // วาดตัวอักษรชื่อธาตุ
+        ctx.fillStyle = atom.element === 'H' ? '#121214' : '#ffffff';
+        ctx.font = `bold ${atom.radius * 0.8}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(atom.element, atom.x, atom.y);
+    });
+
+    // รันลูป Render วนไปเรื่อยๆ
+    requestAnimationFrame(draw);
+}
+
+// เริ่มต้นรันฟังก์ชันวาดภาพ
+draw();
+</script>
+</body>
+</html>
